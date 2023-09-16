@@ -2,7 +2,15 @@ const canvas = document.querySelector('canvas');
 const ctx = canvas.getContext('2d');
 
 const puntosSpan = document.querySelector('#puntosSpan');
-console.log(puntosSpan);
+// console.log(puntosSpan);
+const tiempoSpan = document.querySelector('#tiempoSpan');
+console.log(tiempoSpan);
+
+const bg = new Audio('./sounds/bg.mp3');
+const powerUp = new Audio('./sounds/powerUp.mp3');
+const gameOver = new Audio('./sounds/gameOver.mp3');
+const killEnemy = new Audio('./sounds/killEnemy.mp3');
+const win = new Audio('./sounds/win.mp3')
 
 canvas.width = innerWidth;
 canvas.height = innerHeight;
@@ -40,12 +48,13 @@ class Enemigo{
         this.color = color;
         this.choquesPasados = [];
         this.speed = 2;
+        this.asustado = false;
     }
 
     pintar(){
         ctx.beginPath();
         ctx.arc(this.posicion.x, this.posicion.y, this.radius, 0, Math.PI * 2);
-        ctx.fillStyle = this.color;
+        ctx.fillStyle = this.asustado ? 'blue' : this.color;
         ctx.fill();
         ctx.closePath();
     }
@@ -61,6 +70,21 @@ class Punto{
     constructor({ posicion }){
         this.posicion = posicion;
         this.radius = 3;
+    }
+
+    pintar(){
+        ctx.beginPath();
+        ctx.arc(this.posicion.x, this.posicion.y, this.radius, 0, Math.PI * 2);
+        ctx.fillStyle = 'white';
+        ctx.fill();
+        ctx.closePath();
+    }
+}
+
+class PowerUp{
+    constructor({ posicion }){
+        this.posicion = posicion;
+        this.radius = 7;
     }
 
     pintar(){
@@ -108,6 +132,7 @@ class Borde{
 const bordes = [];
 const pisos = [];
 const puntos = [];
+const power_ups = [];
 const enemigos = [
     new Enemigo({
         posicion:{
@@ -172,7 +197,7 @@ const mapa = [
     ['-', '*', '*', '*', '*', '*', '*', '*', '-'],
     ['-', '*', '-', '*', '-', '*', '-', '*', '-'],
     ['-', '*', '-', '*', '-', '*', '-', '*', '-'],
-    ['-', '*', '*', '*', '*', '*', '*', '*', '-'],
+    ['-', 'p', '*', '*', '*', '*', '*', 'p', '-'],
     ['-', '-', '-', '-', '-', '-', '-', '-', '-']
 ]
 
@@ -213,6 +238,22 @@ mapa.forEach((fila, i) => {
                     }
                 }))
             break;
+            case 'p':
+                pisos.push(new Piso({
+                    posicion:{
+                        x: Borde.width * j,
+                        y: Borde.height * i
+                    },
+                    image: grass
+                }))
+                power_ups.push(new PowerUp({
+                    posicion:{
+                        x: Borde.width * j + Borde.width / 2,
+                        y: Borde.height * i +  + Borde.height / 2
+                    },
+                    image: bush
+                }))
+                break;
         }
     })
 })
@@ -236,11 +277,67 @@ function circuloChocaRectangulo({
     )
 }
 
+//funciones de draw para pantallas de win y game over
+function drawOverlay() {
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)'; // semi-transparent black
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+}
+
+function drawWinScreen() {
+    ctx.font = '50px Arial';
+    ctx.fillStyle = 'white';
+    ctx.fillText('You Win!', canvas.width / 3, canvas.height / 2);
+}
+
+function drawLoseScreen() {
+    ctx.font = '50px Arial';
+    ctx.fillStyle = 'white';
+    ctx.fillText('You Lose!', canvas.width / 3, canvas.height / 2);
+}
+
+function drawReplayButton() {
+    ctx.fillStyle = 'blue';
+    ctx.fillRect(canvas.width / 2 - 50, canvas.height / 2 + 50, 100, 50);
+    ctx.fillStyle = 'white';
+    ctx.font = '20px Arial';
+    ctx.fillText('Replay', canvas.width / 2 - 30, canvas.height / 2 + 80);
+}
+canvas.addEventListener('click', function(event) {
+    const rect = canvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    checkReplayButtonClick(x, y);
+});
+
+function checkReplayButtonClick(x, y) {
+    const buttonX = canvas.width / 2 - 50;
+    const buttonY = canvas.height / 2 + 50;
+    if (
+        x >= buttonX &&
+        x <= buttonX + 100 &&
+        y >= buttonY &&
+        y <= buttonY + 50
+    ) {
+        // The replay button was clicked, so restart the game
+        restartGame();
+    }
+}
+
+function restartGame() {
+    // Reset game variables
+    // Start game loop
+    location.reload();
+}
+
 //animate
 let animacionID;
 function animate(){
     animacionID = requestAnimationFrame(animate);
+    tiempoSpan.innerHTML = parseInt(animacionID / 60);
+
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    bg.play();
 
     if(keys.w.pressed && lastKey === 'w'){
         for(let i = 0; i < bordes.length; i++) {
@@ -351,8 +448,58 @@ function animate(){
         piso.pintar();
     })
 
+    //enemigos tocan player
+    for ( let i = enemigos.length - 1; 0 <= i ; i-- ) {
+        const enemigo = enemigos[i];
+
+        if (Math.hypot(
+                enemigo.posicion.x - player.posicion.x,
+                enemigo.posicion.y - player.posicion.y) <
+            enemigo.radius + player.radius
+        ) {
+            if (enemigo.asustado){
+                killEnemy.play();
+                enemigos.splice(i, 1);
+            } else{
+                cancelAnimationFrame(animacionID);
+                bg.pause();
+                gameOver.play();
+                console.log('you lose');
+                drawOverlay();
+                drawLoseScreen();
+                drawReplayButton();
+            }
+        }
+    }
+
+
+    //powerups aqui
+    for ( let i = power_ups.length - 1; 0 <= i ; i-- ){
+        const power_up = power_ups[i];
+        power_up.pintar();
+
+        //player gets powerup
+        if(Math.hypot(
+                power_up.posicion.x - player.posicion.x,
+                power_up.posicion.y - player.posicion.y) <
+                power_up.radius + player.radius
+        ){
+            power_ups.splice(i, 1);
+            powerUp.play();
+
+            enemigos.forEach(enemigo => {
+                enemigo.asustado = true;
+                console.log(enemigo.asustado)
+
+                setTimeout(() => {
+                    enemigo.asustado = false;
+                }, 5000)
+            })
+        }
+    }
+
     //puntos tocan
-    for ( let i = puntos.length - 1; 0 < i ; i-- ){
+    for ( let i = puntos.length - 1; 0 <= i ; i-- ){
         const punto = puntos[i];
 
         punto.pintar();
@@ -372,15 +519,6 @@ function animate(){
     //enemigos
     enemigos.forEach((enemigo) => {
         enemigo.update();
-
-        if(Math.hypot(
-                enemigo.posicion.x - player.posicion.x,
-                enemigo.posicion.y - player.posicion.y) <
-            enemigo.radius + player.radius
-        ){
-            cancelAnimationFrame(animacionID);
-            console.log('you lose')
-        }
 
         const choques = [];
 
@@ -503,6 +641,17 @@ function animate(){
 
         // console.log(enemigo.choquesPasados);
     })
+
+    //win
+    if (puntos.length == 0){
+        // console.log('you win');
+        cancelAnimationFrame(animacionID);
+        bg.pause();
+        win.play();
+        drawOverlay();
+        drawWinScreen();
+        drawReplayButton();
+    }
 
     player.update();
     // player.velocity.x = 0;
